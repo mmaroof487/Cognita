@@ -125,20 +125,23 @@ devpulse/
 - [x] Pytest fixtures + schema tests
 - [x] GET /health endpoint
 
-### Week 2 — Agents (In Progress)
+### Week 2 — Agents ✓
 
-- [ ] LangGraph StateGraph end-to-end
-- [ ] InsightAgent with Claude
-- [ ] ActionAgent with HITL gate
-- [ ] Celery task orchestration
-- [ ] API endpoints for agent runs
-- [ ] Test crash recovery via checkpoints
+- [x] LangGraph StateGraph end-to-end
+- [x] Collector node (pure DB read, normalized events)
+- [x] Analyst node (pure Python metrics + anomaly detection)
+- [x] InsightAgent with Claude LLM
+- [x] ActionAgent with HITL gate + DB writes
+- [x] Celery task: run_org_analysis with LangGraph
+- [x] Celery beat: weekly scheduled analysis
+- [x] API endpoints: trigger, list, detail agent runs
+- [x] Tests: Collector & Analyst nodes
 
-### Week 3 — API + HITL
+### Week 3 — API + HITL (In Progress)
 
-- [ ] All /agent-runs endpoints
-- [ ] /actions approve/reject flow
-- [ ] Rate limiting middleware
+- [ ] GitHub ingest service (real API calls)
+- [ ] HITL approval/rejection endpoints
+- [ ] Rate limiting middleware active
 - [ ] GitHub webhook receiver
 - [ ] Multi-tenant isolation tests
 

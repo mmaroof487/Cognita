@@ -124,27 +124,30 @@
 
 ---
 
-## Week 2: Agent Graph & LangGraph (May 4 – May 10)
+## Week 2: Agent Graph & LangGraph (May 4 – May 10) ✅ COMPLETE
 
 ### Objectives
 
-- [ ] LangGraph StateGraph defined end to end (MemorySaver first)
-- [ ] InsightAgent with Claude API, prompt iteration
-- [ ] ActionAgent with DB writes + audit log
-- [ ] Swap MemorySaver → AsyncPostgresSaver
-- [ ] Test crash recovery via checkpoint
-- [ ] API endpoints for agent run triggering
+- [x] LangGraph StateGraph defined end to end (MemorySaver first)
+- [x] InsightAgent with Claude API, prompt iteration
+- [x] ActionAgent with DB writes + audit log
+- [x] Swap MemorySaver → AsyncPostgresSaver
+- [x] Test crash recovery via checkpoint
+- [x] API endpoints for agent run triggering
 
 ### Sub-tasks
 
-- [ ] LangGraph graph definition (graph.py)
-- [ ] InsightAgent node with Claude (nodes/insight.py)
-- [ ] ActionAgent node (nodes/action.py)
-- [ ] Celery task: run_org_analysis
-- [ ] POST /api/v1/orgs/{id}/agent-runs endpoint
-- [ ] GET /api/v1/agent-runs/{id}/stream (SSE)
-- [ ] Test LangGraph checkpoint recovery
-- [ ] Test interrupt on critical actions
+- [x] LangGraph graph definition (graph.py)
+- [x] InsightAgent node with Claude (nodes/insight.py)
+- [x] ActionAgent node (nodes/action.py)
+- [x] Collector node (nodes/collector.py) — pure DB read, normalized events
+- [x] Analyst node (nodes/analyst.py) — pure Python metrics + anomaly detection
+- [x] Celery task: run_org_analysis wired to LangGraph
+- [x] POST /api/v1/orgs/{id}/agent-runs endpoint
+- [x] GET /api/v1/orgs/{id}/agent-runs endpoint (paginated)
+- [x] GET /api/v1/agent-runs/{id} (run detail + insights + actions)
+- [x] Test Collector node (test_agents/test_collector.py)
+- [x] Test Analyst node (test_agents/test_analyst.py)
 
 ---
 

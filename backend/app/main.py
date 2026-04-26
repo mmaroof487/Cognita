@@ -52,12 +52,12 @@ def create_app() -> FastAPI:
         }
 
     # ─────────────────────────────────────────────────────────────────────────
-    # API Routes (stubbed for week 1, will be filled in)
+    # API Routes
     # ─────────────────────────────────────────────────────────────────────────
 
-    # Placeholder for API v1 routes
-    # from app.api.v1 import router as v1_router
-    # app.include_router(v1_router, prefix="/api/v1")
+    from app.api.v1.agent_runs import router as agent_runs_router
+
+    app.include_router(agent_runs_router)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Error handling (can be expanded)
