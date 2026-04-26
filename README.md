@@ -236,4 +236,5 @@ A: In `.env` file (git-ignored). Use Fernet encryption at app layer for sensitiv
 **Status:** Week 1 Foundation Complete ✓
 **Next:** Week 2 — LangGraph agents + Celery tasks
 **Demo Video:** Coming week 4
+
 # Cognita

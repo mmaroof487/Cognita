@@ -1,7 +1,7 @@
 # DevPulse — Build Progress Summary
 
-**Current Date:** April 26, 2026  
-**Project Status:** 50% Complete (2 of 4 weeks done)  
+**Current Date:** April 26, 2026
+**Project Status:** 50% Complete (2 of 4 weeks done)
 **Next Phase:** Week 3 — API Polish + GitHub Ingest + Webhooks
 
 ---
@@ -341,6 +341,6 @@ docker compose -f infra/docker-compose.yml up
 
 ---
 
-**Status: ✅ Week 2 COMPLETE**  
-**Next: Week 3 — API + HITL + Webhooks**  
+**Status: ✅ Week 2 COMPLETE**
+**Next: Week 3 — API + HITL + Webhooks**
 **Timeline: 4-week build (May 3 – May 24)**

@@ -155,7 +155,7 @@ def test_analyst_developer_metrics(sample_state_with_data):
     result = analyst_node(sample_state_with_data)
 
     dev_metrics = result["developer_metrics"]
-    
+
     assert "alice" in dev_metrics
     assert dev_metrics["alice"]["commit_count"] == 20
     assert dev_metrics["alice"]["pr_count"] == 1
