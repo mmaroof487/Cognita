@@ -129,9 +129,9 @@ export function Dashboard({ token, orgId }: { token: string, orgId: string }) {
             </div>
           </div>
           <div className="flex items-end gap-3">
-            <p className="text-3xl font-bold text-white">
+            <div className="text-3xl font-bold text-white">
               {loading ? <Skeleton className="h-9 w-12" /> : '24'}
-            </p>
+            </div>
             <span className="text-sm text-[var(--color-muted)] flex items-center mb-1">
               Active today
             </span>
@@ -146,9 +146,9 @@ export function Dashboard({ token, orgId }: { token: string, orgId: string }) {
             </div>
           </div>
           <div className="flex items-end gap-3">
-            <p className="text-3xl font-bold text-white">
+            <div className="text-3xl font-bold text-white">
               {loading ? <Skeleton className="h-9 w-8" /> : highRiskCount}
-            </p>
+            </div>
             <span className="text-sm text-[var(--color-critical)] flex items-center mb-1">
               <TrendingDown className="w-3 h-3 mr-1" /> Needs attention
             </span>
@@ -163,9 +163,9 @@ export function Dashboard({ token, orgId }: { token: string, orgId: string }) {
             </div>
           </div>
           <div className="flex items-end gap-3">
-            <p className="text-3xl font-bold text-white">
+            <div className="text-3xl font-bold text-white">
               {loading ? <Skeleton className="h-9 w-8" /> : pendingActions}
-            </p>
+            </div>
             <span className="text-sm text-[var(--color-warning)] flex items-center mb-1">
               Awaiting approval
             </span>
@@ -180,7 +180,7 @@ export function Dashboard({ token, orgId }: { token: string, orgId: string }) {
             <h3 className="text-lg font-semibold text-white">Health Trend</h3>
             <p className="text-sm text-[var(--color-muted)]">7-day rolling average of organization health</p>
           </div>
-          <div className="flex-1 w-full relative">
+          <div className="flex-1 min-h-0 w-full relative">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={MOCK_TREND_DATA} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
                 <defs>
@@ -207,7 +207,7 @@ export function Dashboard({ token, orgId }: { token: string, orgId: string }) {
             <h3 className="text-lg font-semibold text-white">Risk Distribution</h3>
             <p className="text-sm text-[var(--color-muted)]">Insights by severity level</p>
           </div>
-          <div className="flex-1 w-full flex items-center justify-center relative">
+          <div className="flex-1 min-h-0 w-full flex items-center justify-center relative">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
