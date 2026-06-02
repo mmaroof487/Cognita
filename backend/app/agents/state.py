@@ -1,56 +1,50 @@
-"""
-LangGraph agent state definition.
-Shared state passed through all agent nodes.
-"""
-
-from typing import Annotated, TypedDict, Optional
+from typing import Annotated, TypedDict
 from datetime import datetime
 import operator
 
+class DevMetrics(TypedDict):
+    developer_id: str
+    commit_count: int
+    after_hours_ratio: float
+    high_churn_count: int
+    avg_merge_h: float | None
+    health_score: float
 
-class DevPulseState(TypedDict):
-    """
-    State schema for the LangGraph StateGraph.
-    Passed through: Collector -> Analyst -> Insight -> Action nodes.
-    """
+class Anomaly(TypedDict):
+    type: str          # burnout_risk | high_churn | slow_review
+    developer_id: str
+    detail: str
+    severity: str      # info | warning | critical
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Input Parameters (set when triggering agent)
-    # ─────────────────────────────────────────────────────────────────────────
+class AxonState(TypedDict):
+    # Input
     tenant_id: str
     org_id: str
+    agent_run_id: str
     window_start: datetime
     window_end: datetime
-    agent_run_id: str
+    analysis_window_days: int
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Collector Output (normalized events from DB)
-    # ─────────────────────────────────────────────────────────────────────────
-    commits: list[dict]      # List of commit events
-    prs: list[dict]          # List of PR events
-    developers: list[dict]   # Developer metadata
+    # Collector output
+    commits: list[dict]
+    prs: list[dict]
+    developers: list[dict]
+    repos: list[dict]
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Analyst Output (metrics and anomalies)
-    # ─────────────────────────────────────────────────────────────────────────
-    developer_metrics: dict  # {github_login: MetricsDict}
-    team_metrics: dict       # Aggregate stats
-    anomalies: list[dict]    # Flagged issues
+    # Analyst output
+    developer_metrics: dict[str, DevMetrics]
+    team_metrics: dict
+    anomalies: list[Anomaly]
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Insight Output (human-readable findings — accumulates)
-    # ─────────────────────────────────────────────────────────────────────────
+    # Insight output
     insights: Annotated[list[dict], operator.add]
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Action Output (queued actions for HITL gate — accumulates)
-    # ─────────────────────────────────────────────────────────────────────────
+    # Action output
     actions_queued: Annotated[list[dict], operator.add]
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Control Fields
-    # ─────────────────────────────────────────────────────────────────────────
-    retry_count: int                         # For insight retry logic
-    errors: Annotated[list[str], operator.add]  # Error accumulation
-    tokens_used: int                         # Total LLM tokens consumed
-    cost_usd: float                          # Total cost in USD
+    # Control
+    retry_count: int
+    errors: Annotated[list[str], operator.add]
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float

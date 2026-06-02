@@ -17,28 +17,27 @@ from app.models.agent_run import AgentRun
 
 
 @pytest.mark.asyncio
-async def test_trigger_agent_run(test_client, test_tenant):
+async def test_trigger_agent_run(test_client, test_tenant, test_session):
     """Test manual trigger of agent run."""
     # Create org
-    async with test_client.app.dependencies.get_session() as session:
-        org = Org(
-            tenant_id=test_tenant.id,
-            github_id=123,
-            name="test-org",
-        )
-        session.add(org)
-        await session.commit()
+    org = Org(
+        tenant_id=test_tenant.id,
+        github_org="test-org",
+        display_name="Test Org",
+    )
+    test_session.add(org)
+    await test_session.commit()
 
-        # Note: This test requires proper auth and dependencies setup
-        # For now, we document expected behavior
-        # response = await test_client.post(
-        #     f"/api/v1/orgs/{org.id}/agent-runs",
-        #     json={"analysis_window_days": 7},
-        #     headers={"Authorization": f"Bearer {test_token}"},
-        # )
-        # assert response.status_code == 200
-        # assert response.json()["status"] == "queued"
-        pass
+    # Note: This test requires proper auth and dependencies setup
+    # For now, we document expected behavior
+    # response = await test_client.post(
+    #     f"/api/v1/orgs/{org.id}/agent-runs",
+    #     json={"analysis_window_days": 7},
+    #     headers={"Authorization": f"Bearer {test_token}"},
+    # )
+    # assert response.status_code == 200
+    # assert response.json()["status"] == "queued"
+    pass
 
 
 @pytest.mark.asyncio

@@ -44,7 +44,6 @@ class Tenant(BaseModel):
     agent_runs = relationship("AgentRun", back_populates="tenant", cascade="all, delete-orphan")
     insights = relationship("Insight", back_populates="tenant", cascade="all, delete-orphan")
     agent_actions = relationship("AgentAction", back_populates="tenant", cascade="all, delete-orphan")
-    audit_logs = relationship("AuditLog", back_populates="tenant", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("idx_tenants_plan", "plan"),

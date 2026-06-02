@@ -38,11 +38,13 @@ dependencies = [
     # Security & crypto
     "cryptography==41.0.7",
     "python-jose[cryptography]==3.3.0",
-    "pydantic[email]==2.5.0",
-    "pydantic-settings==2.1.0",
+    "pydantic[email]>=2.7.4",
+    "pydantic-settings>=2.2.0",
 
     # Agents
-    "langgraph==0.0.26",
+    "langgraph>=0.2.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary]>=3.1.8",
     "anthropic==0.7.1",
 
     # Observability
@@ -55,6 +57,9 @@ dependencies = [
 
     # Env
     "python-dotenv==1.0.0",
+
+    # Fix for missing pkg_resources in Python 3.12
+    "setuptools<70.0.0",
 ]
 
 [project.optional-dependencies]
@@ -103,3 +108,7 @@ exclude = ["alembic"]
 [tool.coverage.run]
 source = ["app"]
 omit = ["*/tests/*", "*/test_*.py"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+

@@ -14,9 +14,9 @@ from app.models.pr_event import PrEvent
 from app.models.insight import Insight
 from app.models.agent_run import AgentRun
 from app.models.agent_action import AgentAction
-from app.models.audit_log import AuditLog
 from app.models.tenant_settings import TenantSettings
 from app.models.jira_template import JiraTemplate
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "Base",
@@ -31,7 +31,7 @@ __all__ = [
     "Insight",
     "AgentRun",
     "AgentAction",
-    "AuditLog",
     "TenantSettings",
     "JiraTemplate",
+    "AuditLog",
 ]

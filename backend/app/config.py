@@ -22,11 +22,12 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # ─────────────────────────────────────────────────────────────────────────
-    # GITHUB OAUTH
+    # GITHUB OAUTH & WEBHOOKS
     # ─────────────────────────────────────────────────────────────────────────
     github_client_id: str
     github_client_secret: str
     github_access_token: Optional[str] = None
+    github_webhook_secret: Optional[str] = None  # Secret for webhook signature validation
 
     # ─────────────────────────────────────────────────────────────────────────
     # JWT & ENCRYPTION
@@ -37,20 +38,29 @@ class Settings(BaseSettings):
     encryption_key: str  # Fernet key, generated via cryptography
 
     # ─────────────────────────────────────────────────────────────────────────
-    # ANTHROPIC (LLMs)
+    # LLMs
     # ─────────────────────────────────────────────────────────────────────────
-    anthropic_api_key: str
+    anthropic_api_key: Optional[str] = None
     anthropic_model: str = "claude-3-sonnet-20240229"
+    gemini_api_key: Optional[str] = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # NOTIFICATIONS
     # ─────────────────────────────────────────────────────────────────────────
+    # Slack
     slack_webhook_url: Optional[str] = None
+    slack_bot_token: Optional[str] = None
+    slack_default_channel: Optional[str] = None
+
+    # Email (SMTP)
     smtp_host: Optional[str] = None
-    smtp_port: Optional[int] = None
+    smtp_port: Optional[int] = 587  # Default TLS port
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
-    notification_email: Optional[str] = None
+    smtp_from_address: Optional[str] = None
+    notification_email: Optional[str] = None  # Fallback for alerts
+
+    # Jira
     jira_base_url: Optional[str] = None
     jira_api_user: Optional[str] = None
     jira_api_token: Optional[str] = None

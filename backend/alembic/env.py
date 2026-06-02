@@ -9,6 +9,11 @@ from sqlalchemy import pool
 from sqlalchemy.engine import URL
 from alembic import context
 import asyncio
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
 from app.config import settings
 from app.models import Base
 
@@ -69,7 +74,7 @@ async def run_async_migrations() -> None:
     with connectable.begin() as connection:
         do_run_migrations(connection)
 
-    await connectable.dispose()
+    connectable.dispose()
 
 
 def run_migrations_online() -> None:

@@ -15,74 +15,74 @@ from app.models import (
 @pytest.mark.asyncio
 async def test_tenant_table_exists(test_session):
     """Verify tenants table exists with correct columns."""
-    inspector = inspect(test_session.sync_session.get_bind())
-    tables = inspector.get_table_names()
-    assert "tenants" in tables
+    async with test_session.bind.connect() as conn:
+        tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+        assert "tenants" in tables
 
-    columns = {col["name"] for col in inspector.get_columns("tenants")}
-    assert {"id", "name", "github_org", "plan", "rate_limit_per_min", "created_at", "updated_at"}.issubset(columns)
+        columns_info = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_columns("tenants"))
+        columns = {col["name"] for col in columns_info}
+        assert {"id", "name", "github_org", "plan", "rate_limit_per_min", "created_at", "updated_at"}.issubset(columns)
 
 
 @pytest.mark.asyncio
 async def test_user_table_exists(test_session):
     """Verify users table exists."""
-    inspector = inspect(test_session.sync_session.get_bind())
-    tables = inspector.get_table_names()
-    assert "users" in tables
+    async with test_session.bind.connect() as conn:
+        tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+        assert "users" in tables
 
-    columns = {col["name"] for col in inspector.get_columns("users")}
-    assert {"id", "tenant_id", "github_id", "github_login", "email", "role", "access_token"}.issubset(columns)
+        columns_info = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_columns("users"))
+        columns = {col["name"] for col in columns_info}
+        assert {"id", "tenant_id", "github_id", "github_login", "email", "role", "access_token"}.issubset(columns)
 
 
 @pytest.mark.asyncio
 async def test_developer_table_exists(test_session):
     """Verify developers table exists."""
-    inspector = inspect(test_session.sync_session.get_bind())
-    tables = inspector.get_table_names()
-    assert "developers" in tables
+    async with test_session.bind.connect() as conn:
+        tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+        assert "developers" in tables
 
 
 @pytest.mark.asyncio
 async def test_commit_events_table_exists(test_session):
     """Verify commit_events table exists."""
-    inspector = inspect(test_session.sync_session.get_bind())
-    tables = inspector.get_table_names()
-    assert "commit_events" in tables
+    async with test_session.bind.connect() as conn:
+        tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+        assert "commit_events" in tables
 
 
 @pytest.mark.asyncio
 async def test_agent_runs_table_exists(test_session):
     """Verify agent_runs table exists."""
-    inspector = inspect(test_session.sync_session.get_bind())
-    tables = inspector.get_table_names()
-    assert "agent_runs" in tables
+    async with test_session.bind.connect() as conn:
+        tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+        assert "agent_runs" in tables
 
 
 @pytest.mark.asyncio
 async def test_insights_table_exists(test_session):
     """Verify insights table exists."""
-    inspector = inspect(test_session.sync_session.get_bind())
-    tables = inspector.get_table_names()
-    assert "insights" in tables
+    async with test_session.bind.connect() as conn:
+        tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+        assert "insights" in tables
 
 
 @pytest.mark.asyncio
 async def test_audit_log_table_exists(test_session):
     """Verify audit_log table exists."""
-    inspector = inspect(test_session.sync_session.get_bind())
-    tables = inspector.get_table_names()
-    assert "audit_log" in tables
+    async with test_session.bind.connect() as conn:
+        tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+        assert "audit_log" in tables
 
 
 @pytest.mark.asyncio
 async def test_tenant_unique_constraint(test_tenant, test_session):
     """Verify tenant github_org is unique."""
-    from sqlalchemy import text
-    inspector = inspect(test_session.sync_session.get_bind())
-    constraints = inspector.get_unique_constraints("tenants")
-    constraint_names = {c["name"] for c in constraints if c.get("name")}
-    # Should have a unique constraint on github_org
-    assert any("github_org" in str(c) for c in constraints)
+    async with test_session.bind.connect() as conn:
+        constraints = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_unique_constraints("tenants"))
+        # Should have a unique constraint on github_org
+        assert any("github_org" in str(c) for c in constraints)
 
 
 @pytest.mark.asyncio

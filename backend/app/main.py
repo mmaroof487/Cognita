@@ -1,77 +1,51 @@
-"""
-FastAPI application factory.
-Creates and configures the FastAPI app with middleware, routes, etc.
-"""
-
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import generate_latest
+from fastapi.responses import PlainTextResponse
+
+from app.api.v1 import auth, orgs, repos, developers, insights, agent_runs, actions, webhooks
+from app.core.telemetry import instrument_app
 from app.config import settings
-from app.core.telemetry import init_telemetry
 
+app = FastAPI(title="Axon", version="0.1.0", docs_url="/docs", redoc_url=None)
 
-def create_app() -> FastAPI:
-    """Create and configure FastAPI application."""
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.get_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    app = FastAPI(
-        title="DevPulse API",
-        description="AI-powered developer productivity intelligence platform",
-        version="0.1.0",
-        debug=settings.debug,
-    )
+from starlette.middleware.base import BaseHTTPMiddleware
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if hasattr(request.state, "rate_limit_limit"):
+            response.headers["X-RateLimit-Limit"] = str(request.state.rate_limit_limit)
+            response.headers["X-RateLimit-Remaining"] = str(request.state.rate_limit_remaining)
+            response.headers["Retry-After"] = str(request.state.rate_limit_reset)
+        return response
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Middleware
-    # ─────────────────────────────────────────────────────────────────────────
+app.add_middleware(RateLimitMiddleware)
 
-    # CORS
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.get_cors_origins(),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(orgs.router, prefix="/api/v1")
+app.include_router(repos.router, prefix="/api/v1")
+app.include_router(developers.router, prefix="/api/v1")
+app.include_router(insights.router, prefix="/api/v1")
+app.include_router(agent_runs.router, prefix="/api/v1")
+app.include_router(actions.router, prefix="/api/v1")
+app.include_router(webhooks.router, prefix="/api/v1")
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Initialize services
-    # ─────────────────────────────────────────────────────────────────────────
+@app.get("/health")
+def health():
+    return {"status": "ok", "environment": settings.environment, "version": app.version}
 
-    init_telemetry()
+@app.get("/metrics")
+def metrics():
+    return PlainTextResponse(generate_latest())
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Health check endpoint
-    # ─────────────────────────────────────────────────────────────────────────
-
-    @app.get("/health")
-    async def health_check() -> dict:
-        """Health check endpoint."""
-        return {
-            "status": "ok",
-            "environment": settings.environment,
-            "version": "0.1.0",
-        }
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # API Routes
-    # ─────────────────────────────────────────────────────────────────────────
-
-    from app.api.v1.agent_runs import router as agent_runs_router
-
-    app.include_router(agent_runs_router)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Error handling (can be expanded)
-    # ─────────────────────────────────────────────────────────────────────────
-
-    @app.exception_handler(404)
-    async def not_found_handler(request, exc):
-        return Response(
-            {"detail": "Not found"},
-            status_code=404
-        )
-
-    return app
-
-
-# Create app instance
-app = create_app()
+@app.on_event("startup")
+async def startup_event():
+    instrument_app(app)

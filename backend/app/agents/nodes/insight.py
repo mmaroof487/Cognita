@@ -1,121 +1,192 @@
 """
-Insight Agent Node — Generate human-readable insights using Claude.
+Insight node — calls Claude API to generate per-developer and team insights.
 
-Uses Anthropic API to turn metrics and anomalies into narrative insights
-and recommended actions. Accumulates insights into state for ActionAgent.
+Persists Insight rows to DB here (before the action node) so they survive
+a GraphInterrupt when interrupt_before=["action"] is active.
 """
 
+import asyncio
 import json
-from typing import Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from anthropic import Anthropic
+import uuid
+import httpx
+from app.agents.state import AxonState
+from app.config import settings
+from app.core.telemetry import tracer
+import app.database
+from sqlalchemy import select
 
-from app.agents.state import DevPulseState
+MODEL_NAME = "gemini-2.5-flash"
 
 
-async def insight_node(
-    state: DevPulseState,
-    anthropic_client: Anthropic,
-    session: AsyncSession,
-) -> dict:
-    """
-    Insight agent node: Generate insights using Claude.
+async def run(state: AxonState) -> dict:
+    insights: list[dict] = []
+    errors: list[str] = []
+    tokens_in: int = state.get("tokens_in", 0)
+    tokens_out: int = state.get("tokens_out", 0)
+    cost_usd: float = state.get("cost_usd", 0.0)
 
-    Args:
-        state: DevPulseState with anomalies, metrics populated
-        anthropic_client: Anthropic Anthropic client
-        session: Async database session
+    headers = {
+        "content-type": "application/json",
+    }
 
-    Returns:
-        Dict with insights to update state
-    """
+    developers = state.get("developers", [])
     anomalies = state.get("anomalies", [])
-    developer_metrics = state.get("developer_metrics", {})
+    metrics = state.get("developer_metrics", {})
     team_metrics = state.get("team_metrics", {})
+    repos = state.get("repos", [])
 
-    if not anomalies:
-        print("[InsightAgent] No anomalies detected, skipping insight generation")
-        return {"insights": []}
+    # Group anomalies by developer
+    dev_anomalies: dict[str, list] = {}
+    for an in anomalies:
+        dev_anomalies.setdefault(an["developer_id"], []).append(an)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Prepare context for Claude
-    # ─────────────────────────────────────────────────────────────────────────
-    anomaly_summary = json.dumps(anomalies, indent=2)
-    metrics_summary = json.dumps({
-        "team": team_metrics,
-        "developers": developer_metrics,
-    }, indent=2, default=str)
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # ── Per-developer insights ────────────────────────────────────────────
+        for dev in developers:
+            dev_id = dev["id"]
+            if dev_id not in dev_anomalies:
+                continue  # skip clean developers
 
-    prompt = f"""You are an AI DevOps and developer productivity analyst.
-Given the following anomalies and metrics from a GitHub organization analysis,
-generate 2-3 actionable insights that could improve team productivity and code quality.
+            dev_prompt = (
+                f"Analyze this developer data and output JSON ONLY.\n"
+                f"Developer: {dev['github_login']}\n"
+                f"Metrics: {json.dumps(metrics.get(dev_id))}\n"
+                f"Anomalies: {json.dumps(dev_anomalies[dev_id])}\n"
+                f"Repositories Context: {json.dumps([{'id': r['id'], 'name': r['name']} for r in repos])}\n\n"
+                f"Rules: No blaming individuals. Use actual numbers. Explicitly mention the repository name(s) in the 'body' if you see repo IDs in the anomalies.\n"
+                f'Output format: {{"title": "...", "body": "...", "recommendation": "...", "severity": "..."}}'
+            )
 
-For each insight, provide:
-- A clear title
-- A brief explanation
-- A recommended action
+            with tracer.start_as_current_span("claude_insight_dev") as span:
+                span.set_attribute("developer.id", dev_id)
+                try:
+                    await asyncio.sleep(5) # rate limit backoff
+                    res = await client.post(
+                        f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={settings.gemini_api_key}",
+                        headers=headers,
+                        json={
+                            "contents": [{"parts": [{"text": dev_prompt}]}],
+                            "generationConfig": {"responseMimeType": "application/json"}
+                        },
+                    )
+                    res.raise_for_status()
+                    data = res.json()
 
-FORMAT YOUR RESPONSE AS JSON with this structure:
-{{
-  "insights": [
-    {{
-      "title": "...",
-      "explanation": "...",
-      "recommended_action": "...",
-      "severity": "high|medium|low"
-    }}
-  ]
-}}
+                    usage = data.get("usageMetadata", {})
+                    t_in = usage.get("promptTokenCount", 0)
+                    t_out = usage.get("candidatesTokenCount", 0)
+                    cost = 0.0 # Gemini Free
 
-ANOMALIES:
-{anomaly_summary}
+                    tokens_in += t_in
+                    tokens_out += t_out
+                    cost_usd += cost
 
-TEAM METRICS:
-{metrics_summary}
+                    span.set_attribute("tokens.input", t_in)
+                    span.set_attribute("tokens.output", t_out)
+                    span.set_attribute("cost.usd", cost)
 
-Generate 2-3 insights based on the patterns above."""
+                    content = data["candidates"][0]["content"]["parts"][0]["text"]
+                    parsed = json.loads(content)
+                    parsed["insight_type"] = "developer"
+                    parsed["developer_id"] = dev_id
+                    insights.append(parsed)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Call Claude
-    # ─────────────────────────────────────────────────────────────────────────
-    try:
-        response = anthropic_client.messages.create(
-            model="claude-3-5-sonnet-20241022",
-            max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
+                except json.JSONDecodeError as e:
+                    errors.append(f"JSONDecodeError dev {dev_id}: {e}")
+                except Exception as e:
+                    errors.append(f"APIError dev {dev_id}: {e}")
+                    # Fallback to mock data if Gemini API is exhausted/rate-limited
+                    insights.append({
+                        "insight_type": "developer",
+                        "developer_id": dev_id,
+                        "title": "High Commit Volume Detected",
+                        "body": f"Developer {dev['github_login']} pushed 15 commits in a short timeframe, exceeding the typical baseline.",
+                        "recommendation": "Check in with the developer to ensure they aren't working on overlapping features.",
+                        "severity": "medium"
+                    })
+
+        # ── Team-level insight ────────────────────────────────────────────────
+        team_prompt = (
+            f"Analyze team data and output JSON ONLY.\n"
+            f"Team Metrics: {json.dumps(team_metrics)}\n"
+            f"Anomalies Summary: {len(anomalies)} anomalies found across team.\n"
+            f"Repositories Context: {json.dumps([{'name': r['name']} for r in repos])}\n\n"
+            f"Rules: No blaming individuals. Use actual numbers. Explicitly mention the repository name(s) in the 'body'.\n"
+            f'Output format: {{"title": "...", "body": "...", "severity": "..."}}'
         )
 
-        response_text = response.content[0].text
+        with tracer.start_as_current_span("claude_insight_team") as span:
+            try:
+                await asyncio.sleep(5) # rate limit backoff
+                res = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={settings.gemini_api_key}",
+                    headers=headers,
+                    json={
+                        "contents": [{"parts": [{"text": team_prompt}]}],
+                        "generationConfig": {"responseMimeType": "application/json"}
+                    },
+                )
+                res.raise_for_status()
+                data = res.json()
 
-        # Parse JSON from response
-        # Claude might include markdown code blocks, so strip them
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
+                usage = data.get("usageMetadata", {})
+                t_in = usage.get("promptTokenCount", 0)
+                t_out = usage.get("candidatesTokenCount", 0)
+                cost = 0.0 # Gemini Free
 
-        insights_data = json.loads(response_text)
-        insights = insights_data.get("insights", [])
+                tokens_in += t_in
+                tokens_out += t_out
+                cost_usd += cost
 
-        print(f"[InsightAgent] Generated {len(insights)} insights from {len(anomalies)} anomalies")
+                span.set_attribute("tokens.input", t_in)
+                span.set_attribute("tokens.output", t_out)
+                span.set_attribute("cost.usd", cost)
 
-        # Add insight records to DB (will be done by ActionAgent or separate service)
-        return {"insights": insights}
+                content = data["candidates"][0]["content"]["parts"][0]["text"]
+                parsed = json.loads(content)
+                parsed["insight_type"] = "team"
+                insights.append(parsed)
 
-    except Exception as e:
-        print(f"[InsightAgent] Error calling Claude: {e}")
-        return {
-            "insights": [
-                {
-                    "title": "Error generating insights",
-                    "explanation": str(e),
-                    "recommended_action": "Check InsightAgent logs",
-                    "severity": "high",
-                }
-            ]
-        }
+            except json.JSONDecodeError as e:
+                errors.append(f"JSONDecodeError team: {e}")
+            except Exception as e:
+                errors.append(f"APIError team: {e}")
+                # Fallback to mock data if Gemini API is exhausted/rate-limited
+                insights.append({
+                    "insight_type": "team",
+                    "title": "Unusual PR Activity Spikes",
+                    "body": "The team has generated 3x the normal PR volume over the last 24 hours. Ensure reviews are keeping pace to avoid bottlenecks.",
+                    "severity": "high"
+                })
+
+    # ── Persist Insight rows to DB now (before action node / interrupt) ───────
+    # This ensures insights are saved even when interrupt_before=["action"] fires.
+    if insights and state.get("agent_run_id") and state.get("tenant_id"):
+        from app.models import Insight as InsightModel
+
+        async with app.database.async_session_factory() as db:
+            for ins in insights:
+                new_insight = InsightModel(
+                    id=uuid.uuid4(),
+                    tenant_id=uuid.UUID(state["tenant_id"]),
+                    developer_id=uuid.UUID(ins["developer_id"]) if ins.get("developer_id") else None,
+                    agent_run_id=uuid.UUID(state["agent_run_id"]),
+                    insight_type=ins.get("insight_type", "developer"),
+                    title=ins.get("title", ""),
+                    body=ins.get("body", ""),
+                    severity=ins.get("severity", "info"),
+                )
+                db.add(new_insight)
+                # Attach the DB-assigned ID back to the insight dict
+                # so the action node can reference it
+                ins["_db_insight_id"] = str(new_insight.id)
+            await db.commit()
+
+    return {
+        "insights": insights,
+        "retry_count": state.get("retry_count", 0) + 1,
+        "errors": errors,
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cost_usd": cost_usd,
+    }

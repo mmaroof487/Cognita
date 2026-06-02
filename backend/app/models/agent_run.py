@@ -25,6 +25,12 @@ class AgentRun(BaseModel):
         nullable=False,
     )
 
+    org_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orgs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
     thread_id: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
@@ -68,6 +74,7 @@ class AgentRun(BaseModel):
 
     # Relationships
     tenant = relationship("Tenant", back_populates="agent_runs")
+    org = relationship("Org")
     insights = relationship("Insight", back_populates="agent_run", cascade="all, delete-orphan")
     actions = relationship("AgentAction", back_populates="agent_run", cascade="all, delete-orphan")
 

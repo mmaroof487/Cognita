@@ -1,176 +1,101 @@
 """
-Action Agent Node — Generate actionable outputs and HITL gates.
+Action node — creates pending AgentAction rows from insights and calls interrupt().
 
-Creates:
-- AgentAction records with status=pending (HITL gate)
-- Audit log entries
-- Insight records in DB
-
-Does NOT immediately execute actions; waits for human approval via approve/reject endpoints.
+Insight rows are already persisted by the insight node.
+This node reads insight dicts from state (with _db_insight_id populated),
+creates pending AgentAction rows, writes AuditLog, and interrupts for HITL.
 """
 
-import json
-from datetime import datetime
-from uuid import uuid4
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-from sqlalchemy import select
-
-from app.agents.state import DevPulseState
-from app.models.insight import Insight
-from app.models.agent_action import AgentAction
-from app.models.audit_log import AuditLog
-from app.models.tenant import Tenant
-from app.models.jira_template import JiraTemplate
+from langgraph.types import interrupt
+from app.agents.state import AxonState
+import app.database
+from sqlalchemy import select, text
+from app.models import AgentAction, Insight as InsightModel
+from app.core.telemetry import axon_hitl_pending
+import uuid
 
 
-async def action_node(
-    state: DevPulseState,
-    session: AsyncSession,
-) -> dict:
-    """
-    Action agent node: Create actionable items and HITL gates.
+async def run(state: AxonState) -> dict:
+    insights_data = state.get("insights", [])
+    actions_queued: list[dict] = []
+    interrupt_actions: list[dict] = []
 
-    Args:
-        state: DevPulseState with insights, anomalies populated
-        session: Async database session
+    async with app.database.async_session_factory() as db:
+        for ins in insights_data:
+            sev = ins.get("severity", "info").lower()
 
-    Returns:
-        Dict with actions_queued to update state
-    """
-    tenant_id = state.get("tenant_id")
-    org_id = state.get("org_id")
-    agent_run_id = state.get("agent_run_id")
-    anomalies = state.get("anomalies", [])
-    insights = state.get("insights", [])
+            # Resolve the DB insight ID — either set by insight node or look up
+            db_insight_id_str = ins.get("_db_insight_id")
+            if db_insight_id_str:
+                insight_id = uuid.UUID(db_insight_id_str)
+            else:
+                # Fallback: try to find by agent_run_id + title
+                lookup_stmt = select(InsightModel).where(
+                    InsightModel.agent_run_id == uuid.UUID(state["agent_run_id"]),
+                    InsightModel.title == ins.get("title", ""),
+                )
+                lookup_res = await db.execute(lookup_stmt)
+                found = lookup_res.scalar_one_or_none()
+                insight_id = found.id if found else uuid.uuid4()
 
-    if not insights:
-        print("[ActionAgent] No insights to act on, skipping")
-        return {"actions_queued": []}
+            # Critical → create Jira ticket (requires HITL)
+            if sev == "critical":
+                act_id = uuid.uuid4()
+                act = AgentAction(
+                    id=act_id,
+                    tenant_id=uuid.UUID(state["tenant_id"]),
+                    agent_run_id=uuid.UUID(state["agent_run_id"]),
+                    insight_id=insight_id,
+                    action_type="create_jira",
+                    status="pending",
+                    payload={"message": ins.get("title", "")},
+                )
+                db.add(act)
+                actions_queued.append(act)
+                interrupt_actions.append({"id": str(act_id), "type": "create_jira"})
+                axon_hitl_pending.labels(tenant_id=state["tenant_id"]).inc()
 
-    actions_queued = []
+            # Critical or Warning → send Slack notification (requires HITL)
+            if sev in ("critical", "warning"):
+                act_id = uuid.uuid4()
+                act = AgentAction(
+                    id=act_id,
+                    tenant_id=uuid.UUID(state["tenant_id"]),
+                    agent_run_id=uuid.UUID(state["agent_run_id"]),
+                    insight_id=insight_id,
+                    action_type="send_slack",
+                    status="pending",
+                    payload={"message": ins.get("title", "")},
+                )
+                db.add(act)
+                actions_queued.append(act)
+                axon_hitl_pending.labels(tenant_id=state["tenant_id"]).inc()
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Write Insights to DB
-    # ─────────────────────────────────────────────────────────────────────────
-    for insight in insights:
-        try:
-            insight_record = Insight(
-                tenant_id=tenant_id,
-                agent_run_id=agent_run_id,
-                insight_type=insight.get("severity", "medium"),
-                severity=insight.get("severity", "medium"),
-                title=insight.get("title", ""),
-                body=insight.get("explanation", ""),
-                score=75,  # Default score, could be enhanced
-                metadata={
-                    "recommended_action": insight.get("recommended_action", ""),
-                    "source": "claude_insight_agent",
-                },
-            )
-            session.add(insight_record)
-            await session.flush()
-
-            actions_queued.append({
-                "type": "insight_created",
-                "insight_id": str(insight_record.id),
-                "title": insight.get("title"),
-                "status": "executed",  # Insights don't need approval
-            })
-        except Exception as e:
-            print(f"[ActionAgent] Error writing insight: {e}")
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Generate Jira Tickets (HITL Gate)
-    # ─────────────────────────────────────────────────────────────────────────
-
-    # Get Jira templates for this tenant
-    templates_query = select(JiraTemplate).where(
-        JiraTemplate.tenant_id == tenant_id
-    )
-    templates_result = await session.execute(templates_query)
-    templates_list = templates_result.scalars().all()
-    templates_by_type = {t.anomaly_type: t for t in templates_list}
-
-    for anomaly in anomalies:
-        anomaly_type = anomaly.get("type")  # burnout_risk, high_churn, slow_review
-        template = templates_by_type.get(anomaly_type)
-
-        if not template:
-            print(f"[ActionAgent] No template for anomaly type: {anomaly_type}")
-            continue
-
-        # Build Jira payload
-        developer_login = anomaly.get("developer_login", "unknown")
-        metric_value = anomaly.get("metric", {})
-
-        try:
-            summary = template.summary_template.format(
-                developer_login=developer_login,
-                metric=json.dumps(metric_value),
-            )
-            description = template.description_template.format(
-                developer_login=developer_login,
-                reason=anomaly.get("reason", ""),
-                metric=json.dumps(metric_value),
-                score=anomaly.get("score", 0),
-            )
-        except KeyError as e:
-            print(f"[ActionAgent] Template formatting error: {e}")
-            summary = f"{anomaly_type}: {developer_login}"
-            description = anomaly.get("reason", "")
-
-        # Create AgentAction with HITL gate
-        jira_payload = {
-            "summary": summary,
-            "description": description,
-            "issue_type": template.issue_type,
-            "priority": template.priority_default,
-            "labels": template.labels,
-        }
-
-        action = AgentAction(
-            tenant_id=tenant_id,
-            agent_run_id=agent_run_id,
-            action_type="create_jira",
-            payload=jira_payload,
-            status="pending",  # HITL gate: pending approval
-        )
-        session.add(action)
-        await session.flush()
-
-        actions_queued.append({
-            "type": "create_jira",
-            "action_id": str(action.id),
-            "summary": summary,
-            "status": "pending",
-            "anomaly_type": anomaly_type,
-        })
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Write Audit Log
-    # ─────────────────────────────────────────────────────────────────────────
-    try:
-        audit = AuditLog(
-            tenant_id=tenant_id,
-            actor="agent",
-            action="generate_actions",
-            entity_type="agent_run",
-            entity_id=agent_run_id,
-            diff={
-                "actions_created": len(actions_queued),
-                "anomalies_processed": len(anomalies),
-                "insights_created": len(insights),
+        # Write AuditLog via raw SQL (table is not ORM-mapped)
+        await db.execute(
+            text(
+                "INSERT INTO audit_log (tenant_id, actor, action, entity_type, entity_id) "
+                "VALUES (:tid, :actor, :action, :etype, :eid)"
+            ),
+            {
+                "tid": str(state["tenant_id"]),
+                "actor": "agent:action",
+                "action": "actions.queued",
+                "etype": "agent_run",
+                "eid": state["agent_run_id"],
             },
         )
-        session.add(audit)
-        await session.flush()
-    except Exception as e:
-        print(f"[ActionAgent] Error writing audit log: {e}")
+        await db.commit()
 
-    # Commit all changes
-    await session.commit()
+    # HITL interrupt — fires when critical insights need human approval
+    if interrupt_actions:
+        interrupt(
+            {
+                "message": "Critical insights require HITL approval to create Jira tickets.",
+                "actions": interrupt_actions,
+            }
+        )
 
-    print(f"[ActionAgent] Created {len(actions_queued)} actions in HITL gate")
-
-    return {"actions_queued": actions_queued}
+    return {
+        "actions_queued": [{"id": str(a.id), "type": a.action_type} for a in actions_queued]
+    }

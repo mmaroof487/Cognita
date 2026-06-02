@@ -60,7 +60,7 @@ class Insight(BaseModel):
         comment="0-100 health score (null for non-score insight types)"
     )
 
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    meta_data: Mapped[dict | None] = mapped_column(JSONB, name="metadata", nullable=True)
 
     # Relationships
     tenant = relationship("Tenant", back_populates="insights")

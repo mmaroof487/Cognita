@@ -1,26 +1,20 @@
-# DevPulse Architecture
+# Axon Architecture
 
-**Status:** Week 1 Foundation — Final architecture doc in week 4
+**Status:** v1 Foundation Complete
 
 ## Overview
 
-DevPulse is a multi-tenant SaaS that ingests GitHub/GitLab activity, runs agentic analysis on developer patterns, and autonomously surfaces weekly insights with human-in-the-loop escalation for critical actions.
+Axon is a multi-tenant SaaS that ingests GitHub/GitLab activity, runs agentic analysis on developer patterns, and autonomously surfaces weekly insights with human-in-the-loop escalation for critical actions.
 
 ## High-Level Components
 
 ### Backend
 
-- **FastAPI** — REST API + WebSocket for agent status streaming
+- **FastAPI** — REST API + SSE for agent status streaming
 - **SQLAlchemy** — Async ORM with PostgreSQL + TimescaleDB for time-series
 - **LangGraph** — Stateful multi-agent orchestration with crash recovery
 - **Celery** — Async job queue + scheduled analysis runs
 - **Redis** — Job queue, caching, rate limiting
-
-### Frontend
-
-- **Next.js** — Dashboard, developer insights, HITL approval UI
-- **Recharts** — Activity visualizations
-- **TailwindCSS** — Styling
 
 ### Observability
 
@@ -39,7 +33,7 @@ Key tables:
 - **orgs** — GitHub organizations per tenant
 - **repos** — Repositories
 - **developers** — Tracked contributors (upserted from commits)
-- **commit_events** — Hypertable for time-series commits
+- **commit_events** — Time-series commits
 - **pr_events** — Pull request metrics
 - **agent_runs** — LangGraph execution history
 - **insights** — Agent-generated findings
@@ -48,49 +42,42 @@ Key tables:
 
 ## Agent Architecture (LangGraph)
 
+The agents operate as a StateGraph sharing a TypedDict (`AxonState`), which tracks state like `insights`, `actions_queued`, `errors`, and token tracking.
+
 ```
-Collector Agent
-  └→ reads DB, emits normalized events
+Collector Node
+  └→ reads DB directly using SQLAlchemy, gathers PRs & commits within window
+     Outputs to state: `commits`, `prs`
 
-Analyst Agent
-  └→ computes metrics, detects anomalies (no LLM)
+Analyst Node
+  └→ computes metric aggregations pure Python (no LLM).
+     Outputs to state: `metrics` (grouped by developer)
 
-Insight Agent
-  └→ Claude generates human-readable summaries
+Insight Node
+  └→ Claude (via LangChain ChatAnthropic) generates human-readable insights & identifies burnout/churn/slow-review.
+     Outputs to state: `insights` + LLM tokens usage
 
-Action Agent
-  └→ queues actions, applies HITL gate
+Action Node
+  └→ generates concrete `AgentAction` records. Halts via `interrupt_before` for HITL.
+     Outputs to state: `actions_queued`
 ```
 
-Checkpointing: `AsyncPostgresSaver` → survives crashes, resumable on failure.
+Checkpointing: `AsyncPostgresSaver` ensures state survives crashes and allows resumption upon HITL approval.
 
 ## Multi-Tenancy
 
-- **Application-layer RLS** (not Postgres RLS) via `tenant_id` filtering in all queries
-- Every table has `tenant_id` FK to anchor
-- Rate limiting per tenant tier: free (60 req/min), pro (300), enterprise (1000)
+- **Application-layer RLS** (not Postgres RLS) via `tenant_id` filtering in all queries via FastAPI dependencies (`get_current_tenant`).
+- Rate limiting per tenant tier using Redis sliding window implementation.
 
 ## Security
 
 - **JWT** access + refresh tokens
-- **Fernet** encryption for sensitive data at rest (GitHub PAT, SMTP password, Jira API token)
+- **Fernet** symmetric encryption for sensitive data at rest (GitHub PAT). Key rotation not implemented in v1.
 - **GitHub OAuth** for user onboarding
-- **Bounded autonomy** — Action Agent cannot delete/modify code, only create tickets + notify
-- **Audit log** — Every agent action recorded for compliance
+- **Bounded autonomy** — Action Agent cannot delete/modify code, only create tickets + notify.
+- **Audit log** — Every agent action recorded.
 
 ## Deployment
 
-- **Docker Compose** (local dev) → Postgres, Redis, TimescaleDB, FastAPI, Celery, Grafana
-- **GitHub Actions** (CI) → lint, test, build
-- **TBD** (production) — likely Docker + Kubernetes or managed PaaS
-
-## Week-by-Week Build
-
-- **Week 1** — Schema, auth, health check ✓ (in progress)
-- **Week 2** — LangGraph agents, Celery tasks
-- **Week 3** — API endpoints, HITL flow, webhooks
-- **Week 4** — Frontend, OTel, tests, demo
-
----
-
-Full spec: See project root `idea.md` and `pitch.md`.
+- **Docker Compose** (local dev) → Postgres, Redis, FastAPI, Celery, Grafana.
+- Testing is done mocking HTTP calls via `respx` and skipping real GitHub interaction.

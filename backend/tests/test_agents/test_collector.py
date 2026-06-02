@@ -5,11 +5,11 @@ Tests pure deterministic logic: fetching data from DB and normalizing events.
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
-from app.agents.nodes.collector import collector_node
-from app.agents.state import DevPulseState
+from app.agents.nodes.collector import run as collector_node
+from app.agents.state import AxonState as DevPulseState
 from app.models.tenant import Tenant
 from app.models.org import Org
 from app.models.repo import Repo
@@ -24,8 +24,8 @@ async def test_collector_empty_window(test_session, test_tenant):
     # Create org
     org = Org(
         tenant_id=test_tenant.id,
-        github_id=123,
-        name="test-org",
+        github_org="test-org",
+        display_name="test-org",
     )
     test_session.add(org)
     await test_session.flush()
@@ -34,8 +34,8 @@ async def test_collector_empty_window(test_session, test_tenant):
     state = {
         "tenant_id": str(test_tenant.id),
         "org_id": str(org.id),
-        "window_start": datetime.utcnow() - timedelta(days=7),
-        "window_end": datetime.utcnow(),
+        "window_start": datetime.now(timezone.utc) - timedelta(days=7),
+        "window_end": datetime.now(timezone.utc),
         "commits": [],
         "prs": [],
         "developers": [],
@@ -50,7 +50,7 @@ async def test_collector_empty_window(test_session, test_tenant):
         "cost_usd": 0.0,
     }
 
-    result = await collector_node(state, test_session)
+    result = await collector_node(state)
 
     assert result["commits"] == []
     assert result["prs"] == []
@@ -63,8 +63,8 @@ async def test_collector_with_commits(test_session, test_tenant):
     # Create org and repo
     org = Org(
         tenant_id=test_tenant.id,
-        github_id=123,
-        name="test-org",
+        github_org="test-org",
+        display_name="test-org",
     )
     test_session.add(org)
     await test_session.flush()
@@ -89,7 +89,7 @@ async def test_collector_with_commits(test_session, test_tenant):
     await test_session.flush()
 
     # Create commit
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     commit = CommitEvent(
         tenant_id=test_tenant.id,
         repo_id=repo.id,
@@ -124,11 +124,11 @@ async def test_collector_with_commits(test_session, test_tenant):
         "cost_usd": 0.0,
     }
 
-    result = await collector_node(state, test_session)
+    result = await collector_node(state)
 
     assert len(result["commits"]) == 1
     assert result["commits"][0]["sha"] == "abc123"
-    assert result["commits"][0]["author_login"] == "alice"
+    assert "developer_id" in result["commits"][0]
     assert result["commits"][0]["additions"] == 10
     assert len(result["developers"]) == 1
     assert result["developers"][0]["github_login"] == "alice"
@@ -140,9 +140,9 @@ async def test_collector_missing_state_params(test_session):
     state = {
         "tenant_id": None,  # Missing!
         "org_id": "org-id",
-        "window_start": datetime.utcnow() - timedelta(days=7),
-        "window_end": datetime.utcnow(),
+        "window_start": datetime.now(timezone.utc) - timedelta(days=7),
+        "window_end": datetime.now(timezone.utc),
     }
 
     with pytest.raises(ValueError):
-        await collector_node(state, test_session)
+        await collector_node(state)

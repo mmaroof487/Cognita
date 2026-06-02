@@ -3,7 +3,7 @@ CommitEvent model — normalized GitHub commit data.
 Stores raw commit metrics for analysis.
 """
 
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Index, UniqueConstraint, Text
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Index, UniqueConstraint, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
@@ -18,6 +18,13 @@ class CommitEvent(BaseModel):
     - TimescaleDB can compress these time-series events
     """
     __tablename__ = "commit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        nullable=False,
+    )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -49,13 +56,14 @@ class CommitEvent(BaseModel):
 
     committed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
+        primary_key=True,
         nullable=False,
         comment="When commit was created (GitHub timestamp)"
     )
 
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        server_default=lambda: datetime.now(datetime.UTC),
+        server_default=func.now(),
         nullable=False,
         comment="When DevPulse ingested this event"
     )
@@ -69,5 +77,5 @@ class CommitEvent(BaseModel):
         Index("idx_commits_developer_time", "developer_id", "committed_at"),
         Index("idx_commits_tenant", "tenant_id"),
         Index("idx_commits_repo", "repo_id"),
-        UniqueConstraint("tenant_id", "sha", name="uq_commits_tenant_sha"),
+        UniqueConstraint("tenant_id", "sha", "committed_at", name="uq_commits_tenant_sha"),
     )

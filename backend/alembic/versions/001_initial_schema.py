@@ -137,8 +137,8 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id']),
         sa.ForeignKeyConstraint(['repo_id'], ['repos.id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['developer_id'], ['developers.id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('tenant_id', 'sha', name='uq_commits_tenant_sha'),
+        sa.PrimaryKeyConstraint('id', 'committed_at'),
+        sa.UniqueConstraint('tenant_id', 'sha', 'committed_at', name='uq_commits_tenant_sha'),
     )
     op.create_index('idx_commits_developer_time', 'commit_events', ['developer_id', 'committed_at'])
     op.create_index('idx_commits_tenant', 'commit_events', ['tenant_id'])
@@ -185,6 +185,7 @@ def upgrade() -> None:
         'agent_runs',
         sa.Column('id', postgresql.UUID(as_uuid=True), nullable=False, server_default=sa.text('gen_random_uuid()')),
         sa.Column('tenant_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('org_id', postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column('thread_id', sa.String(255), nullable=False, unique=True),
         sa.Column('status', sa.String(50), nullable=False, server_default='running'),
         sa.Column('triggered_by', sa.String(50), nullable=False, server_default='schedule'),
@@ -199,6 +200,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('now()')),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False, server_default=sa.text('now()')),
         sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['org_id'], ['orgs.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('idx_agent_runs_tenant_started', 'agent_runs', ['tenant_id', 'started_at'])

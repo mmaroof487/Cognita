@@ -11,7 +11,10 @@ from datetime import datetime, timezone
 import uuid
 
 # Import models
-from app.models import Base, Tenant, User, TenantSettings, JiraTemplate
+from app.models import (
+    Base, Tenant, User, TenantSettings, JiraTemplate, Org, Repo, Developer,
+    CommitEvent, PrEvent, Insight, AgentRun, AgentAction, AuditLog
+)
 from app.main import app
 from app.database import get_async_session
 
@@ -20,7 +23,12 @@ from app.database import get_async_session
 # Test Database Setup
 # ─────────────────────────────────────────────────────────────────────────────
 
-TEST_DATABASE_URL = "postgresql+asyncpg://devpulse:devpulse@localhost:5432/devpulse_test"
+import os
+
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://devpulse:devpulse@postgres:5432/devpulse_test"
+)
 
 
 @pytest_asyncio.fixture
@@ -34,13 +42,29 @@ async def test_engine():
 
     # Create tables
     async with engine.begin() as conn:
+        from sqlalchemy import text
+        await conn.execute(text("DROP TABLE IF EXISTS audit_log CASCADE"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("""
+            CREATE TABLE audit_log (
+                id BIGSERIAL PRIMARY KEY,
+                tenant_id UUID NOT NULL REFERENCES tenants(id),
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                entity_type TEXT NOT NULL,
+                entity_id UUID,
+                diff JSONB,
+                ts TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
 
     yield engine
 
     # Cleanup
     async with engine.begin() as conn:
+        from sqlalchemy import text
+        await conn.execute(text("DROP TABLE IF EXISTS audit_log CASCADE"))
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
@@ -48,12 +72,19 @@ async def test_engine():
 @pytest_asyncio.fixture
 async def async_session_factory(test_engine):
     """Create async session factory for tests."""
-    return async_sessionmaker(
+    factory = async_sessionmaker(
         bind=test_engine,
         class_=AsyncSession,
         expire_on_commit=False,
         autoflush=False,
     )
+    
+    # Patch the app's global database components so background tasks/agents use the test DB
+    import app.database
+    app.database.engine = test_engine
+    app.database.async_session_factory = factory
+    
+    return factory
 
 
 @pytest_asyncio.fixture
@@ -99,6 +130,22 @@ async def test_user(test_session: AsyncSession, test_tenant: Tenant) -> User:
     await test_session.commit()
     await test_session.refresh(user)
     return user
+
+
+@pytest_asyncio.fixture
+async def test_org(test_session: AsyncSession, test_tenant: Tenant):
+    """Create a test org."""
+    from app.models.org import Org
+    org = Org(
+        id=uuid.uuid4(),
+        tenant_id=test_tenant.id,
+        github_org="test-org",
+        display_name="Test Org",
+    )
+    test_session.add(org)
+    await test_session.commit()
+    await test_session.refresh(org)
+    return org
 
 
 @pytest_asyncio.fixture

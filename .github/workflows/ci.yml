@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run Pytest
+        working-directory: ./backend
+        run: pytest tests/ -q
+
+  build-and-push:
+    needs: test-and-lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ghcr.io/${{ github.repository }}/api:latest
